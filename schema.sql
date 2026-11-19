@@ -21,8 +21,13 @@ CREATE TABLE fantasy_teams (
   league_name    VARCHAR(100) NULL,
   scoring_format ENUM('standard','half_ppr','ppr') NOT NULL DEFAULT 'ppr',
   created_at     TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  -- where the team came from; imported teams remember their league/team id so re-imports update them
+  platform           ENUM('manual','espn','yahoo','sleeper') NOT NULL DEFAULT 'manual',
+  external_league_id VARCHAR(32) NULL,
+  external_team_id   VARCHAR(32) NULL,
   CONSTRAINT fk_team_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
-  CONSTRAINT uq_team UNIQUE (user_id, season, team_name)
+  CONSTRAINT uq_team UNIQUE (user_id, season, team_name),
+  CONSTRAINT uq_external_team UNIQUE (user_id, platform, season, external_league_id, external_team_id)
 );
 
 -- ---------------------------------------------------------------
@@ -84,6 +89,19 @@ CREATE TABLE player_week_expected (
   rec_points_exp         DECIMAL(7,3) NULL,
   PRIMARY KEY (player_id, season, week),
   CONSTRAINT fk_exp_player FOREIGN KEY (player_id) REFERENCES nfl_players(player_id)
+);
+
+-- Maps each platform's player IDs to our gsis_id (loaded by data/load_playerids.py)
+CREATE TABLE player_id_map (
+  gsis_id    VARCHAR(12)  PRIMARY KEY,
+  espn_id    INT          NULL,
+  yahoo_id   INT          NULL,
+  sleeper_id VARCHAR(16)  NULL,
+  name       VARCHAR(100) NULL,
+  position   VARCHAR(5)   NULL,
+  INDEX idx_map_espn (espn_id),
+  INDEX idx_map_yahoo (yahoo_id),
+  INDEX idx_map_sleeper (sleeper_id)
 );
 
 -- Which players a user had on which fantasy team

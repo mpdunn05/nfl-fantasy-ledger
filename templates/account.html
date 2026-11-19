@@ -23,6 +23,12 @@
 </div>
 
 <div class="card">
+  <h2>Import from ESPN</h2>
+  <p class="sub" style="margin-bottom:12px">Already playing on ESPN? Paste your league link to copy your roster in.</p>
+  <a href="{{ url_for('import_espn') }}"><button type="button">Import from ESPN</button></a>
+</div>
+
+<div class="card">
   <h2>My teams</h2>
   {% if rows %}
   <table>

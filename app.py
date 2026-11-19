@@ -7,6 +7,8 @@ from werkzeug.security import generate_password_hash, check_password_hash
 import pymysql
 import pymysql.cursors
 
+import espn
+
 
 # Load KEY=VALUE pairs from .env (next to this file) into os.environ.
 # Secrets live in .env, which is gitignored -- see .env.example.
@@ -395,6 +397,152 @@ def delete_team(team_id):
         conn.close()
     flash("Team deleted.", "ok")
     return redirect(url_for("account"))
+
+
+# ---------------------------------------------------------------- IMPORT (ESPN league link)
+def match_espn_players(players):
+    """
+    Map ESPN players to our nfl_players ids.
+    1) by ESPN id through player_id_map, 2) by name + position for anyone left over.
+    Returns ({espn_id: gsis_id}, [players that couldn't be matched]).
+    """
+    found = {}
+    ids = [p["espn_id"] for p in players]
+    if ids:
+        rows = query("""
+            SELECT m.espn_id, m.gsis_id FROM player_id_map m
+            JOIN nfl_players p ON p.player_id = m.gsis_id
+            WHERE m.espn_id IN ({})""".format(", ".join(["%s"] * len(ids))), ids)
+        found = {r["espn_id"]: r["gsis_id"] for r in rows}
+
+    left = [p for p in players if p["espn_id"] not in found and p["position"] != "D/ST"]
+    if left:
+        rows = query("""
+            SELECT player_id, full_name, position FROM nfl_players
+            WHERE full_name IN ({})
+            ORDER BY last_season IS NULL, last_season DESC""".format(", ".join(["%s"] * len(left))),
+            [p["name"] for p in left])
+        by_name = {}
+        for r in rows:
+            by_name.setdefault((espn.name_key(r["full_name"]), r["position"]), []).append(r["player_id"])
+        for p in left:
+            cands = by_name.get((espn.name_key(p["name"]), p["position"]), [])
+            if cands:                  # most recent player with that name and position
+                found[p["espn_id"]] = cands[0]
+
+    missing = [p for p in players if p["espn_id"] not in found]
+    return found, missing
+
+
+def espn_form_args(f):
+    return (f.get("espn_s2", "").strip() or None, f.get("swid", "").strip() or None)
+
+
+@app.route("/cse30246/nfl_fantasy_ledger/teams/import", methods=["GET", "POST"])
+@login_required
+def import_espn():
+    """Step 1: paste a link -> show the league's teams so the user can pick theirs."""
+    if request.method == "GET":
+        return render_template("import.html", league=None, link="", season=None)
+
+    f = request.form
+    link = f.get("link", "").strip()
+    espn_s2, swid = espn_form_args(f)
+    try:
+        league_id, season, team_id = espn.parse_league_link(link)
+        if f.get("season", "").isdigit():
+            season = int(f["season"])
+        league = espn.fetch_league(league_id, season, espn_s2, swid)
+    except espn.EspnError as e:
+        flash(str(e), "error")
+        return render_template("import.html", league=None, link=link, season=f.get("season", ""),
+                               espn_s2=espn_s2 or "", swid=swid or "")
+
+    return render_template("import.html", league=league, link=link, season=league["season"],
+                           selected=team_id, espn_s2=espn_s2 or "", swid=swid or "")
+
+
+@app.route("/cse30246/nfl_fantasy_ledger/teams/import/save", methods=["POST"])
+@login_required
+def import_espn_save():
+    """Step 2: re-download the league (don't trust the browser) and save the chosen team's roster."""
+    f = request.form
+    espn_s2, swid = espn_form_args(f)
+    try:
+        league = espn.fetch_league(f.get("league_id", ""), int(f.get("season", 0) or 0), espn_s2, swid)
+    except (espn.EspnError, ValueError) as e:
+        flash(str(e) if isinstance(e, espn.EspnError) else "Bad season.", "error")
+        return redirect(url_for("import_espn"))
+
+    team = next((t for t in league["teams"] if t["team_id"] == f.get("team_id")), None)
+    if team is None:
+        flash("Pick your team from the list.", "error")
+        return redirect(url_for("import_espn"))
+
+    found, missing = match_espn_players(team["players"])
+    uid = current_user_id()
+
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            # Same ESPN team imported before? Update it instead of making a duplicate.
+            cur.execute("""SELECT team_id FROM fantasy_teams
+                           WHERE user_id = %s AND platform = 'espn' AND season = %s
+                             AND external_league_id = %s AND external_team_id = %s""",
+                        (uid, league["season"], league["league_id"], team["team_id"]))
+            existing = cur.fetchone()
+
+            # Team names must be unique per user+season; avoid clashing with a different team
+            name = team["name"]
+            cur.execute("""SELECT team_id FROM fantasy_teams
+                           WHERE user_id = %s AND season = %s AND team_name = %s""",
+                        (uid, league["season"], name))
+            clash = cur.fetchone()
+            if clash and (not existing or clash["team_id"] != existing["team_id"]):
+                name = (name[:93] + " (ESPN)")
+
+            if existing:
+                team_id = existing["team_id"]
+                cur.execute("""UPDATE fantasy_teams SET team_name = %s, league_name = %s, scoring_format = %s
+                               WHERE team_id = %s""",
+                            (name, league["league_name"], league["scoring_format"], team_id))
+                cur.execute("DELETE FROM roster_entries WHERE team_id = %s", (team_id,))
+            else:
+                cur.execute("""INSERT INTO fantasy_teams
+                                 (user_id, season, team_name, league_name, scoring_format,
+                                  platform, external_league_id, external_team_id)
+                               VALUES (%s, %s, %s, %s, %s, 'espn', %s, %s)""",
+                            (uid, league["season"], name, league["league_name"],
+                             league["scoring_format"], league["league_id"], team["team_id"]))
+                team_id = cur.lastrowid
+
+            seen = set()
+            for p in team["players"]:
+                gsis = found.get(p["espn_id"])
+                if gsis and gsis not in seen:
+                    seen.add(gsis)
+                    cur.execute("""INSERT INTO roster_entries (team_id, player_id, draft_round, draft_pick)
+                                   VALUES (%s, %s, %s, %s)""",
+                                (team_id, gsis, p["draft_round"], p["draft_pick"]))
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+    msg = "{} '{}' from {}: {} players.".format(
+        "Updated" if existing else "Imported", name, league["league_name"], len(seen))
+    if missing:
+        msg += " Not imported: {}.".format(", ".join(
+            "{} ({})".format(p["name"], p["position"] or "?") for p in missing))
+    flash(msg, "ok")
+
+    newest = query("SELECT MAX(season) AS s FROM player_week_stats")[0]["s"]
+    if newest and league["season"] > newest:
+        flash("Heads up: our stats database currently goes through the {} season, so points for "
+              "{} will show once that data is loaded.".format(newest, league["season"]), "ok")
+    return redirect(url_for("team_detail", team_id=team_id))
 
 
 if __name__ == "__main__":

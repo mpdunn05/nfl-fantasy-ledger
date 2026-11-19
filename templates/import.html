@@ -1,0 +1,75 @@
+{% extends "nfl_base.html" %}
+{% block title %}Import from ESPN · NFL Fantasy{% endblock %}
+{% block nav_account %}on{% endblock %}
+{% block content %}
+<p><a class="link" href="{{ url_for('account') }}">← My Account</a></p>
+<h1>Import a team from ESPN</h1>
+<p class="sub">Paste your league link and pick your team. We'll copy your roster in. Run it again anytime to update it.</p>
+
+<div class="card">
+  <h2>1. Paste your league link</h2>
+  <form method="post" action="{{ url_for('import_espn') }}">
+    <div class="inline-form" style="display:flex;flex-wrap:wrap;gap:10px;align-items:end">
+      <label style="flex:1;min-width:280px">ESPN league link
+        <input name="link" value="{{ link }}" required
+               placeholder="https://fantasy.espn.com/football/league?leagueId=123456&seasonId=2025">
+      </label>
+      <label>Season <small>(optional)</small>
+        <input name="season" value="{{ season or '' }}" inputmode="numeric" pattern="[0-9]{4}"
+               placeholder="from link" style="min-width:0;width:110px">
+      </label>
+      <button type="submit">Find league</button>
+    </div>
+    <p class="sub" style="margin:10px 0 0;font-size:13px">
+      On ESPN, open your league (or your team page) and copy the address from your browser's address bar.
+    </p>
+
+    <details style="margin-top:14px" {% if espn_s2 or swid %}open{% endif %}>
+      <summary style="cursor:pointer;font-size:14px"><strong>Private league?</strong> Most ESPN leagues are.</summary>
+      <div style="font-size:14px;line-height:1.5;margin-top:10px">
+        <p style="margin:0 0 8px"><strong>Easiest:</strong> ask your league manager to turn on
+          <em>League → Settings → Basic Settings → "Make League Viewable to Public"</em>. After that, the link alone works.</p>
+        <p style="margin:0 0 8px"><strong>Or</strong> paste two cookies from your browser while signed in to ESPN:</p>
+        <ol style="margin:0 0 10px;padding-left:20px">
+          <li>Open <code>fantasy.espn.com</code> in Chrome or Firefox while signed in.</li>
+          <li>Press F12 → <em>Application</em> (Chrome) or <em>Storage</em> (Firefox) → <em>Cookies</em> → <code>https://fantasy.espn.com</code>.</li>
+          <li>Copy the values of <code>espn_s2</code> and <code>SWID</code> below.</li>
+        </ol>
+        <div style="display:flex;flex-wrap:wrap;gap:10px">
+          <label style="flex:2;min-width:240px">espn_s2 <input name="espn_s2" value="{{ espn_s2 }}" autocomplete="off"></label>
+          <label style="flex:1;min-width:200px">SWID <input name="swid" value="{{ swid }}" autocomplete="off" placeholder="{XXXXXXXX-XXXX-...}"></label>
+        </div>
+        <p class="sub" style="margin:8px 0 0;font-size:13px">These are used only to read your league for this import. We don't save them.</p>
+      </div>
+    </details>
+  </form>
+</div>
+
+{% if league %}
+<div class="card">
+  <h2>2. Which team is yours?</h2>
+  <p class="sub" style="margin-bottom:12px">{{ league.league_name }} · {{ league.season }} season ·
+    {{ league.scoring_format }} scoring · {{ league.teams|length }} teams</p>
+  <form method="post" action="{{ url_for('import_espn_save') }}">
+    <input type="hidden" name="league_id" value="{{ league.league_id }}">
+    <input type="hidden" name="season" value="{{ league.season }}">
+    <input type="hidden" name="espn_s2" value="{{ espn_s2 }}">
+    <input type="hidden" name="swid" value="{{ swid }}">
+    <table>
+      <tr><th></th><th>Team</th><th>Manager</th><th class="num">Players</th></tr>
+      {% for t in league.teams %}
+      <tr>
+        <td style="width:30px"><input type="radio" name="team_id" value="{{ t.team_id }}" id="t{{ t.team_id }}" required
+                   style="min-width:0" {% if selected == t.team_id %}checked{% endif %}></td>
+        <td><label for="t{{ t.team_id }}" style="display:inline;font-size:14px;color:inherit;cursor:pointer">
+          <strong>{{ t.name }}</strong>{% if t.abbrev %} <span class="pos">{{ t.abbrev }}</span>{% endif %}</label></td>
+        <td>{{ t.owners or '–' }}</td>
+        <td class="num">{{ t.players|length }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+    <p style="margin:14px 0 0"><button type="submit">Import my team</button></p>
+  </form>
+</div>
+{% endif %}
+{% endblock %}

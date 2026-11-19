@@ -1,0 +1,50 @@
+{% extends "nfl_base.html" %}
+{% block title %}My Account · NFL Fantasy{% endblock %}
+{% block nav_account %}on{% endblock %}
+{% block content %}
+<h1>{{ me.username }}</h1>
+<p class="sub">{{ me.email }} · member since {{ me.created_at.strftime('%b %d, %Y') }}</p>
+
+<div class="card">
+  <h2>Create a team</h2>
+  <form class="inline" method="post" action="{{ url_for('create_team') }}">
+    <label>Team name <input name="team_name" required maxlength="100" placeholder="Touchdown Irish"></label>
+    <label>League <input name="league_name" maxlength="100" placeholder="Dorm League"></label>
+    <label>Season
+      <select name="season">{% for s in seasons %}<option>{{ s }}</option>{% endfor %}</select>
+    </label>
+    <label>Scoring
+      <select name="scoring_format">
+        {% for f in formats %}<option {% if f == 'ppr' %}selected{% endif %}>{{ f }}</option>{% endfor %}
+      </select>
+    </label>
+    <button type="submit">Create team</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2>My teams</h2>
+  {% if rows %}
+  <table>
+    <tr><th>Team</th><th>League</th><th>Season</th><th>Scoring</th><th class="num">Players</th><th></th></tr>
+    {% for t in rows %}
+    <tr>
+      <td><a class="link" href="{{ url_for('team_detail', team_id=t.team_id) }}">{{ t.team_name }}</a></td>
+      <td>{{ t.league_name or '–' }}</td>
+      <td>{{ t.season }}</td>
+      <td>{{ t.scoring_format }}</td>
+      <td class="num">{{ t.num_players }}</td>
+      <td class="num">
+        <form method="post" action="{{ url_for('delete_team', team_id=t.team_id) }}"
+              onsubmit="return confirm('Delete {{ t.team_name }} and its roster?');">
+          <button class="small danger" type="submit">Delete</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p class="empty">You have no teams yet. Create one above.</p>
+  {% endif %}
+</div>
+{% endblock %}

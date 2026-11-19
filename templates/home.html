@@ -1,0 +1,46 @@
+{% extends "nfl_base.html" %}
+{% block title %}NFL Fantasy{% endblock %}
+{% block content %}
+<h1>NFL Fantasy Tracker</h1>
+<p class="sub">Build fantasy teams from real NFL data and see how your players actually performed, week by week, against expectations.</p>
+
+<div class="row">
+  <a class="card navcard" href="{{ url_for('players') }}">
+    <h2>Players →</h2>
+    <p>Search every player by name, position and season. See standard and PPR fantasy points.</p>
+  </a>
+  <a class="card navcard" href="{{ url_for('teams') }}">
+    <h2>All Teams →</h2>
+    <p>Browse every team users have built. Sign in to create and manage your own.</p>
+  </a>
+</div>
+
+<div class="card">
+  <h2>What's in the database</h2>
+  <table>
+    <tr><th>Table</th><th>Holds</th><th class="num">Rows</th></tr>
+    {% for t in counts %}
+    <tr><td><code>{{ t.name }}</code></td><td>{{ t.desc }}</td><td class="num">{{ '{:,}'.format(t.n) }}</td></tr>
+    {% endfor %}
+    <tr><td colspan="2"><strong>Total</strong></td><td class="num"><strong>{{ '{:,}'.format(total) }}</strong></td></tr>
+  </table>
+  <p class="sub" style="margin:12px 0 0">Source: nflverse (players, weekly stats, schedules, teams) and ffopportunity (expected fantasy points), 2015–2024.</p>
+</div>
+
+<div class="card">
+  <h2>Project documents</h2>
+  <p>
+    <a class="link" href="{{ url_for('project') }}">Project Page</a> ·
+    <a class="link" href="{{ url_for('devplan') }}">Development Plan</a> ·
+    <a class="link" href="{{ url_for('demo') }}">Project Demo</a>
+  </p>
+</div>
+
+<style>
+  a.navcard { text-decoration:none; color:inherit; transition:border-color .15s, box-shadow .15s; }
+  a.navcard:hover { border-color:var(--navy); box-shadow:0 2px 10px rgba(12,35,64,.08); }
+  a.navcard h2 { color:var(--navy); }
+  a.navcard p { margin:0; color:var(--muted); }
+  code { font-size:13px; background:#eef1f5; padding:2px 6px; border-radius:4px; }
+</style>
+{% endblock %}

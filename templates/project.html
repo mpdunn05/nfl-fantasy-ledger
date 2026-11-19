@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ND Central Remake</title>
+</head>
+
+<body>
+
+<h1>ND Central Remake</h1>
+
+<h2>1. Description of the Application</h2>
+
+<p>
+    Our project is a remake of ND Central, designed to provide Notre Dame
+    students with a more efficient and personalized way to discover campus
+    events. The application will allow users to search and browse events based
+    on information such as location, organization, event category, date, and
+    time.
+</p>
+
+<p>
+    Users will be able to create accounts and associate their accounts with
+    their residence hall. Organizations and residence halls will also be able
+    to post events to the system. Students will be able to save events,
+    indicate that they are attending events, and follow organizations so that
+    they can receive updates when those organizations post new events.
+</p>
+
+<p>
+    The application will organize this information in a relational database
+    containing users, residence halls, events, organizations, locations,
+    interests, reviews, and attendance information.
+</p>
+
+
+<h2>2. Usefulness</h2>
+
+<p>
+    Notre Dame already provides ND Central as a way to find events on campus.
+    However, our application is intended to make the process of finding
+    relevant events faster and more personalized. Instead of requiring users
+    to search through a large collection of events, our system will use
+    information about the user, including their residence hall and interests,
+    to help surface events that are more relevant to them.
+</p>
+
+<p>
+    Our application will also provide functionality that is not available in
+    the same way through a basic event catalog. For example, residence-hall
+    specific events can be associated with particular dorms, allowing users
+    to more easily find events taking place in or targeted toward their
+    residence hall. The application will also allow users to save events and
+    identify scheduling conflicts between events.
+</p>
+
+<p>
+    The goal is therefore not simply to reproduce ND Central, but to create a
+    more personalized event discovery system that makes it easier for
+    students to find events they are interested in and realistically able to
+    attend.
+</p>
+
+
+<h2>3. Realness</h2>
+
+<p>
+    The primary data for our application will come from the existing ND
+    Central website. We will use information about Notre Dame events,
+    organizations, and locations to populate our database.
+</p>
+
+<p>
+    In addition to existing event information, our application will support
+    user-generated data. Students and organizations will be able to submit
+    events, while residence halls will have accounts that allow them to post
+    events associated with their dorm. Users will also be able to create
+    interests, save events, indicate attendance, and submit reviews.
+</p>
+
+<p>
+    This gives the application realistic data that represents the types of
+    information that students would actually use when searching for campus
+    events.
+</p>
+
+
+<h2>4. Functionality</h2>
+
+<h3>Basic Functions</h3>
+
+<p>
+    The application will provide the required basic database functionality
+    for inserting, updating, deleting, searching, and displaying records.
+</p>
+
+<ul>
+    <li>Create, update, and delete events.</li>
+    <li>Create, update, and delete organizations.</li>
+    <li>Create, update, and delete locations.</li>
+    <li>Search for events by name, organization, location, date, or category.</li>
+    <li>Display event information and associated organization and location information.</li>
+    <li>Allow users to save events and indicate that they are attending.</li>
+    <li>Allow users to submit reviews for events.</li>
+    <li>Allow users to follow organizations and receive updates about new events.</li>
+    <li>Filter events based on a user's residence hall.</li>
+</ul>
+
+<p>
+    Our database will also support queries involving multiple related tables.
+    For example, the application could retrieve events associated with a
+    particular residence hall and interest category while also displaying
+    the organization and location responsible for the event.
+</p>
+
+
+<h3>Advanced Function 1: Personalized Event Recommendations</h3>
+
+<p>
+    Our first advanced function will be a personalized event recommendation
+    system. Rather than simply displaying events in chronological order, the
+    application will calculate which events are most relevant to a particular
+    user.
+</p>
+
+<p>
+    The recommendation system will consider information such as the user's
+    residence hall, selected interests, previous event activity, and the
+    characteristics of available events. The system will process this
+    information and assign events a relevance score, allowing the application
+    to present users with events that are more likely to interest them.
+</p>
+
+<p>
+    The technically challenging part of this feature is determining how to
+    combine multiple types of user and event information into a useful
+    recommendation rather than simply filtering the database. The system will
+    require programming to process the database results, calculate relevance,
+    and rank available events.
+</p>
+
+<p>
+    This feature is useful because a student may have hundreds of available
+    campus events but only a small number that are relevant to their interests,
+    location, and activities. The recommendation system will reduce the amount
+    of searching required to find useful events.
+</p>
+
+
+<h3>Advanced Function 2: Smart Event Schedule and Conflict Detection</h3>
+
+<p>
+    Our second advanced function will help users determine which events they
+    can realistically attend. Users will be able to save or mark multiple
+    events as events they are interested in attending. The application will
+    then analyze the dates and times of those events to identify conflicts.
+</p>
+
+<p>
+    The system can identify situations such as two events occurring at the
+    same time. We also plan to extend this functionality to account for the
+    locations of events. For example, two events may not technically overlap,
+    but it may be impossible for a student to travel from the first location
+    to the second location in the available time.
+</p>
+
+<p>
+    The technically challenging problem is determining whether a collection
+    of events represents a feasible schedule. The application will retrieve
+    the user's selected events, compare their start and end times, and use
+    event location information to determine whether transitions between
+    events are possible. The system will then identify conflicts and present
+    the user with a feasible event schedule.
+</p>
+
+<p>
+    This feature would make the application more useful than a basic event
+    catalog because it does not simply tell students what events exist. It
+    helps them determine which events they can actually attend.
+</p>
+
+
+<h3>Additional Planned Functionality</h3>
+
+<p>
+    We also plan to provide event analytics using the reviews and attendance
+    information collected by the application. This could include average
+    event ratings, attendance information, and comparisons between different
+    types of events. These analytics can provide useful information to
+    organizations when planning future events.
+</p>
+
+<p>
+    Together, these functions are intended to transform the application from
+    a simple searchable event database into a personalized event discovery
+    system for Notre Dame students.
+</p>
+
+</body>
+</html>

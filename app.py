@@ -1,0 +1,402 @@
+#!/var/www/html/cse30246/nfl_fantasy_ledger/.venv/bin/python3
+
+import os
+from functools import wraps
+from flask import Flask, render_template, request, redirect, url_for, flash, session
+from werkzeug.security import generate_password_hash, check_password_hash
+import pymysql
+import pymysql.cursors
+
+
+# Load KEY=VALUE pairs from .env (next to this file) into os.environ.
+# Secrets live in .env, which is gitignored -- see .env.example.
+def load_env(path=os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")):
+    if not os.path.exists(path):
+        return
+    with open(path) as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+
+load_env()
+
+app = Flask(__name__)
+app.secret_key = os.environ["SECRET_KEY"]   # needed for flash() messages
+
+SEASONS = list(range(2024, 2006, -1))
+POSITIONS = ["QB", "RB", "WR", "TE", "K"]
+FORMATS = ["standard", "half_ppr", "ppr"]
+
+# returns conn object for accesssing the database
+def get_conn():
+    return pymysql.connect(
+        host=os.environ.get("DB_HOST", "localhost"),
+        user=os.environ["DB_USER"],
+        password=os.environ["DB_PASSWORD"],
+        database=os.environ["DB_NAME"],
+        cursorclass=pymysql.cursors.DictCursor,
+        autocommit=False)
+
+# wrapper for cursor.execute() sql is sequel query returns array
+def query(sql, args=()):
+    """Run a SELECT and return a list of dict rows."""
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(sql, args)
+            return cur.fetchall()
+    finally:
+        conn.close()
+
+# another wrapper for cursor.execute() this one returns lastrowid that is the primary key of the row just inserted
+def modify(sql, args=()):
+    """Run an INSERT/UPDATE/DELETE and commit. Returns lastrowid."""
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(sql, args)
+            new_id = cur.lastrowid
+        conn.commit()
+        return new_id
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------- existing pages
+TABLES = [
+    ("player_week_stats",    "Weekly fantasy stats per player"),
+    ("player_week_expected", "Expected fantasy points per player-week"),
+    ("nfl_players",          "Every NFL player"),
+    ("nfl_games",            "Game results and schedules"),
+    ("nfl_teams",            "NFL teams"),
+    ("users",                "App users"),
+    ("fantasy_teams",        "Fantasy teams created in the app"),
+    ("roster_entries",       "Players on fantasy rosters"),
+]
+
+# Main Page
+@app.route("/cse30246/nfl_fantasy_ledger")
+def index():
+    counts = []
+    for name, desc in TABLES:
+        try:
+            # getting count of rows in each table
+            n = query("SELECT COUNT(*) AS n FROM " + name)[0]["n"]
+        except pymysql.err.ProgrammingError:   # table missing
+            continue
+        # creating a list of sets where each set is a table and the number of rows in that table
+        counts.append({"name": name, "desc": desc, "n": n})
+    # returning total number of rows;
+    total = sum(c["n"] for c in counts)
+    return render_template("home.html", counts=counts, total=total)
+
+
+# Project Pages
+@app.route("/cse30246/nfl_fantasy_ledger/project")
+def project():
+    return render_template("project.html")
+
+
+@app.route("/cse30246/nfl_fantasy_ledger/devplan")
+def devplan():
+    return render_template("devplan.html")
+
+
+@app.route("/cse30246/nfl_fantasy_ledger/demo")
+def demo():
+    return render_template("demo.html")
+
+
+
+# ---------------------------------------------------------------- accounts
+def current_user_id():
+    return session.get("user_id")
+
+
+def login_required(view):
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        if not current_user_id():
+            flash("Please sign in first.", "error")
+            return redirect(url_for("login", next=request.path))
+        return view(*args, **kwargs)
+    return wrapped
+
+
+def owns_team(team_id):
+    """True if the signed-in user owns this team (checked in SQL every time)."""
+    return bool(query("SELECT team_id FROM fantasy_teams WHERE team_id = %s AND user_id = %s",
+                      (team_id, current_user_id())))
+
+
+@app.route("/cse30246/nfl_fantasy_ledger/signup", methods=["GET", "POST"])
+def signup():
+    if request.method == "POST":
+        f = request.form
+        username = f.get("username", "").strip()
+        email = f.get("email", "").strip()
+        password = f.get("password", "")
+        if not (username and email and password):
+            flash("Username, email and password are required.", "error")
+        elif len(password) < 6:
+            flash("Password must be at least 6 characters.", "error")
+        elif password != f.get("confirm", ""):
+            flash("Passwords do not match.", "error")
+        else:
+            try:
+                user_id = modify(
+                    "INSERT INTO users (username, email, password_hash) VALUES (%s, %s, %s)",
+                    (username, email, generate_password_hash(password)))
+            except pymysql.err.IntegrityError:
+                flash("That username or email is already taken.", "error")
+            else:
+                session["user_id"], session["username"] = user_id, username
+                flash("Welcome, {}! Your account is ready.".format(username), "ok")
+                return redirect(url_for("account"))
+    return render_template("signup.html")
+
+
+@app.route("/cse30246/nfl_fantasy_ledger/login", methods=["GET", "POST"])
+def login():
+    if request.method == "POST":
+        username = request.form.get("username", "").strip()
+        rows = query("SELECT user_id, username, password_hash FROM users WHERE username = %s",
+                     (username,))
+        if rows and check_password_hash(rows[0]["password_hash"], request.form.get("password", "")):
+            session["user_id"], session["username"] = rows[0]["user_id"], rows[0]["username"]
+            flash("Signed in as {}.".format(rows[0]["username"]), "ok")
+            nxt = request.args.get("next", "")
+            return redirect(nxt if nxt.startswith("/cse30246/") else url_for("account"))
+        flash("Wrong username or password.", "error")
+    return render_template("login.html")
+
+
+@app.route("/cse30246/nfl_fantasy_ledger/logout", methods=["POST"])
+def logout():
+    session.clear()
+    flash("Signed out.", "ok")
+    return redirect(url_for("index"))
+
+
+@app.route("/cse30246/nfl_fantasy_ledger/account")
+@login_required
+def account():
+    me = query("SELECT username, email, created_at FROM users WHERE user_id = %s",
+               (current_user_id(),))
+    if not me:                       # account was deleted out from under the session
+        session.clear()
+        return redirect(url_for("login"))
+    rows = query("""
+        SELECT ft.team_id, ft.team_name, ft.league_name, ft.season, ft.scoring_format,
+               COUNT(re.roster_entry_id) AS num_players
+        FROM fantasy_teams ft
+        LEFT JOIN roster_entries re ON re.team_id = ft.team_id
+        WHERE ft.user_id = %s
+        GROUP BY ft.team_id, ft.team_name, ft.league_name, ft.season,
+                 ft.scoring_format, ft.created_at
+        ORDER BY ft.created_at DESC""", (current_user_id(),))
+    return render_template("account.html", me=me[0], rows=rows,
+                           seasons=SEASONS, formats=FORMATS)
+
+
+# ---------------------------------------------------------------- SEARCH (players)
+@app.route("/cse30246/nfl_fantasy_ledger/players")
+def players():
+    q = request.args.get("q", "").strip()
+    position = request.args.get("position", "")
+    season = request.args.get("season", "2024")
+    if not season.isdigit():
+        season = "2024"
+
+    sql = """
+        SELECT p.player_id, p.full_name, p.position,
+               GROUP_CONCAT(DISTINCT s.team SEPARATOR '/') AS team,
+               COUNT(s.week)                       AS games,
+               ROUND(SUM(s.fantasy_points), 1)     AS std_pts,
+               ROUND(SUM(s.fantasy_points_ppr), 1) AS ppr_pts,
+               ROUND(AVG(s.fantasy_points_ppr), 1) AS ppr_per_game
+        FROM nfl_players p
+        JOIN player_week_stats s ON s.player_id = p.player_id
+        WHERE s.season = %s AND s.season_type = 'REG'
+          AND p.full_name LIKE %s
+    """
+    args = [int(season), "%" + q + "%"]
+    if position in POSITIONS:
+        sql += " AND p.position = %s"
+        args.append(position)
+    sql += """
+        GROUP BY p.player_id, p.full_name, p.position
+        ORDER BY ppr_pts DESC
+        LIMIT 100"""
+
+    rows = query(sql, args)
+    return render_template("players.html", rows=rows, q=q, position=position,
+                           season=int(season), seasons=SEASONS, positions=POSITIONS)
+
+
+# ---------------------------------------------------------------- fantasy teams list
+@app.route("/cse30246/nfl_fantasy_ledger/teams")
+def teams():
+    rows = query("""
+        SELECT ft.team_id, ft.user_id, ft.team_name, ft.league_name, ft.season,
+               ft.scoring_format, u.username, COUNT(re.roster_entry_id) AS num_players
+        FROM fantasy_teams ft
+        JOIN users u ON u.user_id = ft.user_id
+        LEFT JOIN roster_entries re ON re.team_id = ft.team_id
+        GROUP BY ft.team_id, ft.user_id, ft.team_name, ft.league_name, ft.season,
+                 ft.scoring_format, u.username, ft.created_at
+        ORDER BY ft.created_at DESC""")
+    return render_template("teams.html", rows=rows)
+
+
+# ---------------------------------------------------------------- INSERT (create team)
+@app.route("/cse30246/nfl_fantasy_ledger/teams/create", methods=["POST"])
+@login_required
+def create_team():
+    f = request.form
+    team_name = f.get("team_name", "").strip()
+    if not team_name:
+        flash("Team name is required.", "error")
+        return redirect(url_for("account"))
+    try:
+        team_id = modify(
+            """INSERT INTO fantasy_teams (user_id, season, team_name, league_name, scoring_format)
+               VALUES (%s, %s, %s, %s, %s)""",
+            (current_user_id(), int(f.get("season", 2024)), team_name,
+             f.get("league_name", "").strip() or None,
+             f.get("scoring_format") if f.get("scoring_format") in FORMATS else "ppr"))
+    except pymysql.err.IntegrityError:
+        flash("You already have a team called '{}' that season.".format(team_name), "error")
+        return redirect(url_for("account"))
+    flash("Created team '{}'.".format(team_name), "ok")
+    return redirect(url_for("team_detail", team_id=team_id))
+
+
+# ---------------------------------------------------------------- team page
+@app.route("/cse30246/nfl_fantasy_ledger/teams/<int:team_id>")
+def team_detail(team_id):
+    found = query("""
+        SELECT ft.*, u.username FROM fantasy_teams ft
+        JOIN users u ON u.user_id = ft.user_id
+        WHERE ft.team_id = %s""", (team_id,))
+    if not found:
+        flash("That team no longer exists.", "error")
+        return redirect(url_for("teams"))
+    team = found[0]
+
+    roster = query("""
+        SELECT re.roster_entry_id, p.player_id, p.full_name, p.position,
+               GROUP_CONCAT(DISTINCT s.team SEPARATOR '/') AS season_team,
+               COUNT(s.week) AS games,
+               ROUND(SUM(CASE ft.scoring_format
+                           WHEN 'ppr'      THEN s.fantasy_points_ppr
+                           WHEN 'half_ppr' THEN (s.fantasy_points + s.fantasy_points_ppr) / 2
+                           ELSE s.fantasy_points END), 1) AS pts
+        FROM roster_entries re
+        JOIN fantasy_teams ft ON ft.team_id = re.team_id
+        JOIN nfl_players p    ON p.player_id = re.player_id
+        LEFT JOIN player_week_stats s
+               ON s.player_id = re.player_id AND s.season = ft.season
+              AND s.season_type = 'REG'
+        WHERE re.team_id = %s
+        GROUP BY re.roster_entry_id, p.player_id, p.full_name, p.position
+        ORDER BY pts DESC""", (team_id,))
+
+    is_owner = team["user_id"] == current_user_id()
+    q = request.args.get("q", "").strip()
+    matches = []
+    if q and is_owner:
+        matches = query("""
+            SELECT p.player_id, p.full_name, p.position, p.latest_team, p.last_season
+            FROM nfl_players p
+            WHERE p.full_name LIKE %s
+              AND p.player_id NOT IN (SELECT player_id FROM roster_entries WHERE team_id = %s)
+            ORDER BY p.last_season IS NULL, p.last_season DESC, p.full_name
+            LIMIT 15""", ("%" + q + "%", team_id))
+
+    total = sum(r["pts"] or 0 for r in roster)
+    return render_template("team.html", team=team, roster=roster, matches=matches,
+                           q=q, total=total, formats=FORMATS, is_owner=is_owner)
+
+
+# ---------------------------------------------------------------- INSERT (add player)
+@app.route("/cse30246/nfl_fantasy_ledger/teams/<int:team_id>/add", methods=["POST"])
+@login_required
+def add_player(team_id):
+    if not owns_team(team_id):
+        flash("You can only change your own teams.", "error")
+        return redirect(url_for("team_detail", team_id=team_id))
+    player_id = request.form.get("player_id", "")
+    try:
+        modify("INSERT INTO roster_entries (team_id, player_id) VALUES (%s, %s)",
+               (team_id, player_id))
+        flash("Player added to roster.", "ok")
+    except pymysql.err.IntegrityError as e:
+        flash("Could not add player: " + str(e.args[1]), "error")
+    return redirect(url_for("team_detail", team_id=team_id))
+
+
+# ---------------------------------------------------------------- UPDATE (team settings)
+@app.route("/cse30246/nfl_fantasy_ledger/teams/<int:team_id>/update", methods=["POST"])
+@login_required
+def update_team(team_id):
+    if not owns_team(team_id):
+        flash("You can only change your own teams.", "error")
+        return redirect(url_for("team_detail", team_id=team_id))
+    name = request.form.get("team_name", "").strip()
+    fmt = request.form.get("scoring_format", "ppr")
+    if not name or fmt not in FORMATS:
+        flash("Team name and a valid scoring format are required.", "error")
+    else:
+        try:
+            modify("""UPDATE fantasy_teams SET team_name = %s, scoring_format = %s
+                      WHERE team_id = %s AND user_id = %s""",
+                   (name, fmt, team_id, current_user_id()))
+            flash("Team updated.", "ok")
+        except pymysql.err.IntegrityError:
+            flash("You already have a team called '{}' that season.".format(name), "error")
+    return redirect(url_for("team_detail", team_id=team_id))
+
+
+# ---------------------------------------------------------------- DELETE (drop player)
+@app.route("/cse30246/nfl_fantasy_ledger/teams/<int:team_id>/remove/<int:entry_id>", methods=["POST"])
+@login_required
+def remove_player(team_id, entry_id):
+    if not owns_team(team_id):
+        flash("You can only change your own teams.", "error")
+        return redirect(url_for("team_detail", team_id=team_id))
+    modify("DELETE FROM roster_entries WHERE roster_entry_id = %s AND team_id = %s",
+           (entry_id, team_id))
+    flash("Player removed from roster.", "ok")
+    return redirect(url_for("team_detail", team_id=team_id))
+
+
+# ---------------------------------------------------------------- DELETE (whole team)
+@app.route("/cse30246/nfl_fantasy_ledger/teams/<int:team_id>/delete", methods=["POST"])
+@login_required
+def delete_team(team_id):
+    if not owns_team(team_id):
+        flash("You can only delete your own teams.", "error")
+        return redirect(url_for("team_detail", team_id=team_id))
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM roster_entries WHERE team_id = %s", (team_id,))
+            cur.execute("DELETE FROM fantasy_teams WHERE team_id = %s AND user_id = %s",
+                        (team_id, current_user_id()))
+        conn.commit()
+    finally:
+        conn.close()
+    flash("Team deleted.", "ok")
+    return redirect(url_for("account"))
+
+
+if __name__ == "__main__":
+    app.run("0.0.0.0", port=int(os.environ.get("PORT", 5015)),
+            debug=os.environ.get("FLASK_DEBUG", "0") == "1")

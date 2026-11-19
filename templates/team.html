@@ -1,0 +1,90 @@
+{% extends "nfl_base.html" %}
+{% block title %}{{ team.team_name }} · NFL Fantasy{% endblock %}
+{% block nav_teams %}on{% endblock %}
+{% block content %}
+<p><a class="link" href="{{ url_for('teams') }}">← All teams</a>
+  {% if is_owner %} · <a class="link" href="{{ url_for('account') }}">My Account</a>{% endif %}</p>
+<h1>{{ team.team_name }}</h1>
+<p class="sub">Owner {{ team.username }} · {{ team.league_name or 'No league' }} · {{ team.season }} season ·
+  {{ team.scoring_format }} scoring · <strong>{{ '%.1f'|format(total) }} total points</strong></p>
+
+<div class="card">
+  <h2>Roster</h2>
+  {% if roster %}
+  <table>
+    <tr><th>Player</th><th>Pos</th><th>{{ team.season }} NFL team</th><th class="num">Games</th><th class="num">Points</th>{% if is_owner %}<th></th>{% endif %}</tr>
+    {% for r in roster %}
+    <tr>
+      <td>{{ r.full_name }}</td>
+      <td><span class="pos">{{ r.position or '–' }}</span></td>
+      <td>{{ r.season_team or 'Did not play' }}</td>
+      <td class="num">{{ r.games }}</td>
+      <td class="num"><strong>{{ r.pts if r.pts is not none else '0.0' }}</strong></td>
+      {% if is_owner %}
+      <td class="num">
+        <form method="post" action="{{ url_for('remove_player', team_id=team.team_id, entry_id=r.roster_entry_id) }}">
+          <button class="small danger" type="submit">Remove</button>
+        </form>
+      </td>
+      {% endif %}
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p class="empty">No players yet.{% if is_owner %} Search below to add some.{% endif %}</p>
+  {% endif %}
+</div>
+
+{% if is_owner %}
+<div class="row">
+  <div class="card">
+    <h2>Add a player</h2>
+    <form class="inline" method="get" action="{{ url_for('team_detail', team_id=team.team_id) }}">
+      <label>Player name <input name="q" value="{{ q }}" placeholder="e.g. Jefferson"></label>
+      <button type="submit" class="ghost">Find</button>
+    </form>
+    {% if q %}
+      {% if matches %}
+      <table style="margin-top:12px">
+        <tr><th>Player</th><th>Pos</th><th>Current team</th><th></th></tr>
+        {% for m in matches %}
+        <tr>
+          <td>{{ m.full_name }}</td>
+          <td><span class="pos">{{ m.position or '–' }}</span></td>
+          <td>{{ m.latest_team or '–' }}</td>
+          <td class="num">
+            <form method="post" action="{{ url_for('add_player', team_id=team.team_id) }}">
+              <input type="hidden" name="player_id" value="{{ m.player_id }}">
+              <button class="small" type="submit">Add</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </table>
+      {% else %}
+      <p class="empty">No available players match "{{ q }}".</p>
+      {% endif %}
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h2>Team settings</h2>
+    <form class="inline" method="post" action="{{ url_for('update_team', team_id=team.team_id) }}">
+      <label>Team name <input name="team_name" value="{{ team.team_name }}" required></label>
+      <label>Scoring
+        <select name="scoring_format">
+          {% for f in formats %}<option {% if f == team.scoring_format %}selected{% endif %}>{{ f }}</option>{% endfor %}
+        </select>
+      </label>
+      <button type="submit">Save</button>
+    </form>
+    <form method="post" action="{{ url_for('delete_team', team_id=team.team_id) }}"
+          onsubmit="return confirm('Delete this team and its roster?');" style="margin-top:16px">
+      <button class="danger" type="submit">Delete team</button>
+    </form>
+  </div>
+</div>
+{% else %}
+<p class="sub">You're viewing {{ team.username }}'s team. Only the owner can change it.</p>
+{% endif %}
+{% endblock %}

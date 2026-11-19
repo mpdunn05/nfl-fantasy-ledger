@@ -1,0 +1,52 @@
+<html>
+	<head><title>A Title</title></head>
+
+	<body>
+
+		<h1>A Heading</h1>
+		<p>A Paragraph</p>
+		<a href="http://nd.edu">A Anchor Text</a>
+
+		<form action="/get_example" method="GET">
+			Enter your age:
+			<input type="text" name="age"/>
+			<input type="submit" value="click me"/>
+		</form>
+		
+		{% if get_age %}
+			<p>In one year you will be {{get_age}} years old! </p>
+		{% endif %}
+
+		<h2>Forms and Databases</h2>
+
+		<form action="/age" method="GET">
+			Enter your age:
+			<input type="number" name="age"/>
+			<input type="submit" value"Submit"/>
+		</form>
+
+		{% if age %}
+			<p>Your age is {{age}}</p>
+		{% endif %}
+
+		<h3>Previous Entries</h3>
+
+		<table border="1">
+			<tr>
+				<th>ID</th>
+				<th>Age</th>
+				<th>Created</th>
+			</tr>
+
+			{% for row in rows %}
+				<tr>
+					<td>{{row[0]}}</td>
+					<td>{{row[1]}}</td>
+					<td>{{row[2]}}</td>
+					<td>{{row[3]}}</td>
+				</tr>
+			{% endfor %}
+
+		</table>
+	</body>
+<html>

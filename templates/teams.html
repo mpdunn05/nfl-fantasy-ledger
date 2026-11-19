@@ -1,0 +1,30 @@
+{% extends "nfl_base.html" %}
+{% block title %}All Teams · NFL Fantasy{% endblock %}
+{% block nav_teams %}on{% endblock %}
+{% block content %}
+<h1>All fantasy teams</h1>
+<p class="sub">Every team created by every user. Click one to see its roster.
+  {% if session.user_id %}Create or delete your own teams on <a class="link" href="{{ url_for('account') }}">My Account</a>.
+  {% else %}<a class="link" href="{{ url_for('signup') }}">Create an account</a> to build your own.{% endif %}</p>
+
+<div class="card">
+  {% if rows %}
+  <table>
+    <tr><th>Team</th><th>Owner</th><th>League</th><th>Season</th><th>Scoring</th><th class="num">Players</th></tr>
+    {% for t in rows %}
+    <tr>
+      <td><a class="link" href="{{ url_for('team_detail', team_id=t.team_id) }}">{{ t.team_name }}</a>
+        {% if t.user_id == session.user_id %}<span class="mine">YOURS</span>{% endif %}</td>
+      <td>{{ t.username }}</td>
+      <td>{{ t.league_name or '–' }}</td>
+      <td>{{ t.season }}</td>
+      <td>{{ t.scoring_format }}</td>
+      <td class="num">{{ t.num_players }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p class="empty">No teams yet.</p>
+  {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,51 @@
+{% extends "nfl_base.html" %}
+{% block title %}Players · NFL Fantasy{% endblock %}
+{% block nav_players %}on{% endblock %}
+{% block content %}
+<h1>Player Leaderboard</h1>
+<p class="sub">Contains regular season fantasy production from the last 20 years.</p>
+
+<div class="card">
+  <form class="inline" method="get" action="{{ url_for('players') }}">
+    <label>Name
+      <input type="text" name="q" value="{{ q }}" placeholder="e.g. Tom Brady">
+    </label>
+    <label>Position
+      <select name="position">
+        <option value="">All</option>
+        {% for p in positions %}<option {% if p == position %}selected{% endif %}>{{ p }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Season
+      <select name="season">
+        {% for s in seasons %}<option {% if s == season %}selected{% endif %}>{{ s }}</option>{% endfor %}
+      </select>
+    </label>
+    <button type="submit">Search</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2>{{ season }} leaders{% if position %} · {{ position }}{% endif %}{% if q %} · "{{ q }}"{% endif %}</h2>
+  {% if rows %}
+  <table>
+    <tr><th>#</th><th>Player</th><th>Pos</th><th>Team</th>
+        <th class="num">Games</th><th class="num">Std pts</th><th class="num">PPR pts</th><th class="num">PPR / game</th></tr>
+    {% for r in rows %}
+    <tr>
+      <td>{{ loop.index }}</td>
+      <td>{{ r.full_name }}</td>
+      <td><span class="pos">{{ r.position or '–' }}</span></td>
+      <td>{{ r.team or '–' }}</td>
+      <td class="num">{{ r.games }}</td>
+      <td class="num">{{ r.std_pts }}</td>
+      <td class="num"><strong>{{ r.ppr_pts }}</strong></td>
+      <td class="num">{{ r.ppr_per_game }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p class="empty">No players match that search.</p>
+  {% endif %}
+</div>
+{% endblock %}

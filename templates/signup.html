@@ -1,0 +1,16 @@
+{% extends "nfl_base.html" %}
+{% block title %}Create account · NFL Fantasy{% endblock %}
+{% block nav_signup %}on{% endblock %}
+{% block content %}
+<div class="card authbox">
+  <h2>Create an account</h2>
+  <form method="post">
+    <label>Username <input name="username" required maxlength="50" value="{{ request.form.username or '' }}"></label>
+    <label>Email <input name="email" type="email" required maxlength="255" value="{{ request.form.email or '' }}"></label>
+    <label>Password <input name="password" type="password" required minlength="6"></label>
+    <label>Confirm password <input name="confirm" type="password" required minlength="6"></label>
+    <button type="submit">Create account</button>
+  </form>
+  <p class="sub" style="margin:14px 0 0">Already have one? <a class="link" href="{{ url_for('login') }}">Sign in</a></p>
+</div>
+{% endblock %}

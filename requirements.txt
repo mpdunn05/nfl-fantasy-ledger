@@ -1,0 +1,6 @@
+# Web app
+flask
+pymysql
+
+# Data loading scripts (data/)
+nflreadpy

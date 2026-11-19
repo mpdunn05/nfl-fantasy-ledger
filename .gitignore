@@ -1,0 +1,22 @@
+# Secrets
+.env
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# Runtime / logs / editor files
+*.log
+nohup.out
+*.swp
+.DS_Store
+
+# Large generated data (regenerate with data/export_nfl.py)
+data/*.csv
+
+# Teammates' scratch / private files
+app_backup.py
+someth.txt
+templates/demo.html

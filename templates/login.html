@@ -1,0 +1,14 @@
+{% extends "nfl_base.html" %}
+{% block title %}Sign in · NFL Fantasy{% endblock %}
+{% block nav_login %}on{% endblock %}
+{% block content %}
+<div class="card authbox">
+  <h2>Sign in</h2>
+  <form method="post">
+    <label>Username <input name="username" required value="{{ request.form.username or '' }}"></label>
+    <label>Password <input name="password" type="password" required></label>
+    <button type="submit">Sign in</button>
+  </form>
+  <p class="sub" style="margin:14px 0 0">New here? <a class="link" href="{{ url_for('signup') }}">Create an account</a></p>
+</div>
+{% endblock %}

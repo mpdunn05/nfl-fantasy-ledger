@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ND Central Remake - Development Plan</title>
+</head>
+
+<body>
+
+<h1>ND Central Remake - Development Plan</h1>
+
+<img src="{{ url_for('static', filename='images/Relational Schema.png') }}"
+     alt="Relational Schema"
+     width="800"
+>
+<h2>1. Final Choice of Databases and Software Platforms</h2>
+
+<p>
+    We will be using MySQL from class as our relational database. Our
+    programming languages will be Python, HTML, CSS, and JavaScript.
+    Python will be used for the backend application and communication with
+    the database, while HTML, CSS, and JavaScript will be used to build
+    the user interface.
+</p>
+
+<p>
+    Our application will be developed and hosted using the resources provided
+    on db8.cse.nd.edu.
+</p>
+
+
+<h2>2. Relational Schema</h2>
+
+<p>
+    Our relational schema will contain tables for users, dorms, events,
+    organizations, locations, interests, reviews, and event attendance.
+    We will also use relational tables to connect users with their interests
+    and events with the dorms and interests they are associated with.
+</p>
+
+<p>
+    We will design the relationships between these tables before beginning
+    the main application development. This will allow the database structure
+    to support the searching, filtering, personalization, and event
+    management functionality of our application.
+</p>
+
+
+<h2>3. How Will We Get Data?</h2>
+
+<p>
+    We have emailed ND Central to ask how we could access the database behind
+    their website. We plan to use information from ND Central to populate
+    our database with realistic Notre Dame event information.
+</p>
+
+<p>
+    We will also have user-generated data in our system. Students,
+    organizations, and dorms will be able to contribute events, while users
+    will be able to save events, indicate attendance, select interests, and
+    eventually provide reviews.
+</p>
+
+
+<h2>4. What Will Everyone Do?</h2>
+
+<p>
+    <strong>Clint:</strong> Will work on the frontend pages and HTML.
+</p>
+
+<p>
+    The remaining responsibilities will be divided among the other members
+    of the group as development progresses. Members will work on the
+    database, backend programming, frontend development, data preparation,
+    and advanced application functionality.
+</p>
+
+
+<h2>5. Timeline</h2>
+
+<p>
+    We plan to meet once a week, and sometimes twice a week, to discuss
+    updates on the project, divide tasks, and coordinate development.
+</p>
+
+<h3>Before Fall Break</h3>
+
+<ul>
+    <li>Finalize the relational database schema.</li>
+    <li>Finalize the relationships between all major tables.</li>
+    <li>Determine the primary keys and foreign keys for each table.</li>
+    <li>Write and test the MySQL code needed to create the database tables.</li>
+    <li>Make sure the tables and relationships work correctly on db8.</li>
+</ul>
+
+<p>
+    <strong>Our goal is to have the relational schema and the code required
+    to create the actual database tables completed by Fall Break.</strong>
+</p>
+
+<h3>After Fall Break</h3>
+
+<ul>
+    <li>Populate the database with initial event, organization, location, and dorm data.</li>
+    <li>Continue developing the Flask/Python backend.</li>
+    <li>Implement the basic event searching and database functionality.</li>
+    <li>Continue developing the HTML, CSS, and JavaScript frontend.</li>
+    <li>Connect the frontend to the database through the backend.</li>
+</ul>
+
+<h3>Later Development</h3>
+
+<ul>
+    <li>Implement user accounts and dorm-specific functionality.</li>
+    <li>Implement organization and dorm event posting.</li>
+    <li>Implement event saving, attendance, and reviews.</li>
+    <li>Develop the personalized event recommendation system.</li>
+    <li>Develop the smart event schedule and conflict detection system.</li>
+    <li>Test the application and fix database, backend, and frontend issues.</li>
+    <li>Prepare the final demonstration and project report.</li>
+</ul>
+
+</body>
+</html>

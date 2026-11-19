@@ -22,6 +22,12 @@ VIEWS = ["mTeam", "mRoster", "mSettings", "mDraftDetail"]
 POSITIONS = {1: "QB", 2: "RB", 3: "WR", 4: "TE", 5: "K", 16: "D/ST"}
 RECEPTION_STAT_ID = 53   # points per reception in scoringSettings
 
+# ESPN proTeamId -> team abbreviation. Team defenses have playerId = -16000 - proTeamId.
+PRO_TEAMS = {1: "ATL", 2: "BUF", 3: "CHI", 4: "CIN", 5: "CLE", 6: "DAL", 7: "DEN", 8: "DET",
+             9: "GB", 10: "TEN", 11: "IND", 12: "KC", 13: "LV", 14: "LAR", 15: "MIA", 16: "MIN",
+             17: "NE", 18: "NO", 19: "NYG", 20: "NYJ", 21: "PHI", 22: "ARI", 23: "PIT", 24: "LAC",
+             25: "SF", 26: "SEA", 27: "TB", 28: "WSH", 29: "CAR", 30: "JAX", 33: "BAL", 34: "HOU"}
+
 
 class EspnError(Exception):
     """A problem the user can fix (bad link, private league, ...). The message is shown to them."""
@@ -137,18 +143,48 @@ def parse_league(data, league_id, season):
     """
     Turn ESPN's JSON into:
       {"league_id", "season", "league_name", "scoring_format",
-       "teams": [{"team_id", "name", "abbrev", "owners", "players": [
-           {"espn_id", "name", "position", "draft_round", "draft_pick"}]}]}
+       "teams": [{"team_id", "name", "abbrev", "owners",
+                  "players": [{"espn_id", "name", "position", "draft_round", "draft_pick"}],
+                  "draft":   [{"espn_id", "name", "position", "overall", "round", "round_pick",
+                               "bid", "keeper"}]}]}
     """
     settings = data.get("settings") or {}
     members = {m.get("id"): (m.get("displayName") or
                              " ".join(x for x in (m.get("firstName"), m.get("lastName")) if x) or "")
                for m in data.get("members") or []}
 
-    picks = {}   # (team_id, espn player id) -> (round, overall pick)
+    # Names/positions of every rostered player in the league, so draft picks that were
+    # traded or dropped still get a name when they now sit on another team
+    league_players = {}
+    for t in data.get("teams") or []:
+        for e in ((t.get("roster") or {}).get("entries") or []):
+            pl = ((e.get("playerPoolEntry") or {}).get("player")) or {}
+            pid = e.get("playerId") or pl.get("id")
+            if pid is not None:
+                league_players[int(pid)] = (pl.get("fullName"), POSITIONS.get(pl.get("defaultPositionId"), ""))
+
+    picks = {}        # (team_id, espn player id) -> (round, overall pick)
+    team_drafts = {}  # team_id -> [pick dicts]
     for p in ((data.get("draftDetail") or {}).get("picks") or []):
-        if p.get("playerId") is not None:
-            picks[(p.get("teamId"), p.get("playerId"))] = (p.get("roundId"), p.get("overallPickNumber"))
+        pid, overall = p.get("playerId"), p.get("overallPickNumber")
+        if pid is None or overall is None or int(pid) == -1:
+            continue
+        pid = int(pid)
+        picks[(p.get("teamId"), pid)] = (p.get("roundId"), overall)
+        name, pos = league_players.get(pid, (None, ""))
+        if pid < 0 and not name:            # team defense, e.g. -16003 = Chicago
+            abbr = PRO_TEAMS.get(-16000 - pid)
+            name, pos = ("{} D/ST".format(abbr) if abbr else "D/ST"), "D/ST"
+        team_drafts.setdefault(p.get("teamId"), []).append({
+            "espn_id": pid,
+            "name": name,                   # None = look it up later (player not on any roster now)
+            "position": pos,
+            "overall": int(overall),
+            "round": p.get("roundId"),
+            "round_pick": p.get("roundPickNumber"),
+            "bid": p.get("bidAmount") or None,
+            "keeper": bool(p.get("keeper")),
+        })
 
     teams = []
     for t in data.get("teams") or []:
@@ -175,6 +211,7 @@ def parse_league(data, league_id, season):
             "abbrev": t.get("abbrev") or "",
             "owners": ", ".join(members.get(o, "") for o in (t.get("owners") or []) if members.get(o)),
             "players": players,
+            "draft": sorted(team_drafts.get(t.get("id"), []), key=lambda d: d["overall"]),
         })
     teams.sort(key=lambda t: t["name"].lower())
 

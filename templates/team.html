@@ -2,6 +2,25 @@
 {% block title %}{{ team.team_name }} · NFL Fantasy{% endblock %}
 {% block nav_teams %}on{% endblock %}
 {% block content %}
+{% macro finish_cell(f) -%}
+  {%- if f -%}
+    <strong>{{ f.position }}{{ f.pos_rank }}</strong>{% if f.overall_rank %} <span class="muted">· #{{ f.overall_rank }}</span>{% endif %}
+  {%- else -%}<span class="muted">–</span>{%- endif -%}
+{%- endmacro %}
+{% macro value_cell(pick, f) -%}
+  {%- if pick and f and f.overall_rank -%}
+    {%- set diff = pick - f.overall_rank -%}
+    <span class="val {{ 'up' if diff > 0 else ('down' if diff < 0 else '') }}" title="Drafted #{{ pick }}, finished #{{ f.overall_rank }}">
+      {{- '+' if diff > 0 }}{{ diff }}</span>
+  {%- endif -%}
+{%- endmacro %}
+<style>
+  .muted { color:var(--muted); }
+  .val { font-size:12px; font-weight:700; padding:2px 6px; border-radius:4px; background:#eef1f5; }
+  .val.up { background:#e7f6ec; color:#14532d; }
+  .val.down { background:#fdecea; color:#7a1c13; }
+  tr.gone td { color:var(--muted); }
+</style>
 <p><a class="link" href="{{ url_for('teams') }}">← All teams</a>
   {% if is_owner %} · <a class="link" href="{{ url_for('account') }}">My Account</a>{% endif %}</p>
 <h1>{{ team.team_name }}</h1>
@@ -12,12 +31,15 @@
   <h2>Roster</h2>
   {% if roster %}
   <table>
-    <tr><th>Player</th><th>Pos</th><th>{{ team.season }} NFL team</th><th class="num">Games</th><th class="num">Points</th>{% if is_owner %}<th></th>{% endif %}</tr>
+    <tr><th>Player</th><th>Pos</th><th>{{ team.season }} NFL team</th><th>Drafted</th><th>Finish</th>
+        <th class="num">Games</th><th class="num">Points</th>{% if is_owner %}<th></th>{% endif %}</tr>
     {% for r in roster %}
     <tr>
       <td>{{ r.full_name }}</td>
       <td><span class="pos">{{ r.position or '–' }}</span></td>
       <td>{{ r.season_team or 'Did not play' }}</td>
+      <td>{% if r.draft_pick %}Rd {{ r.draft_round }} · #{{ r.draft_pick }}{% else %}<span class="muted">{{ 'Pickup' if draft else '–' }}</span>{% endif %}</td>
+      <td>{{ finish_cell(r.finish) }}</td>
       <td class="num">{{ r.games }}</td>
       <td class="num"><strong>{{ r.pts if r.pts is not none else '0.0' }}</strong></td>
       {% if is_owner %}
@@ -33,7 +55,45 @@
   {% else %}
   <p class="empty">No players yet.{% if is_owner %} Search below to add some.{% endif %}</p>
   {% endif %}
+  {% if roster and has_stats %}
+  <p class="muted" style="font-size:12px;margin:10px 0 0">
+    Finish = end of {{ team.season }} regular season in {{ team.scoring_format }} scoring:
+    position rank (WR3 = 3rd-best WR) · overall rank among QB/RB/WR/TE.
+    Kickers are ranked by 3 pts per FG + 1 per extra point.</p>
+  {% elif roster %}
+  <p class="muted" style="font-size:12px;margin:10px 0 0">
+    End-of-season finishes will appear once {{ team.season }} stats are loaded.</p>
+  {% endif %}
 </div>
+
+{% if draft %}
+<div class="card">
+  <h2>Draft recap</h2>
+  <table>
+    <tr><th>Pick</th><th class="num">Overall</th><th>Player</th><th>Pos</th><th>Finish</th>
+        <th class="num" title="Overall pick minus overall finish. Positive = finished better than drafted.">Value</th><th>Now</th></tr>
+    {% for d in draft %}
+    <tr class="{{ '' if d.on_roster else 'gone' }}">
+      <td>{% if d.draft_round and d.round_pick %}{{ d.draft_round }}.{{ '%02d'|format(d.round_pick) }}{% else %}–{% endif %}
+          {% if d.keeper %}<span class="mine">Keeper</span>{% endif %}</td>
+      <td class="num">#{{ d.overall_pick }}{% if d.bid_amount %} <span class="muted">(${{ d.bid_amount }})</span>{% endif %}</td>
+      <td>{{ d.player_name }}</td>
+      <td><span class="pos">{{ d.position or '–' }}</span></td>
+      <td>{{ finish_cell(d.finish) }}</td>
+      <td class="num">{{ value_cell(d.overall_pick, d.finish) }}</td>
+      <td>{{ 'On roster' if d.on_roster else 'Traded / dropped' }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  <p class="muted" style="font-size:12px;margin:10px 0 0">
+    Value compares each player's overall draft slot to their overall finish: +20 means they finished 20 spots better than where they were picked.</p>
+</div>
+{% elif team.platform == 'espn' and is_owner %}
+<div class="card">
+  <h2>Draft recap</h2>
+  <p class="empty">Re-import this team from <a class="link" href="{{ url_for('import_espn') }}">Import from ESPN</a> to load your full draft.</p>
+</div>
+{% endif %}
 
 {% if is_owner %}
 <div class="row">

@@ -280,6 +280,46 @@ def create_team():
     return redirect(url_for("team_detail", team_id=team_id))
 
 
+# ---------------------------------------------------------------- end-of-season ranks
+RANK_POSITIONS = ("QB", "RB", "WR", "TE", "K")
+
+
+def season_ranks(season, scoring_format):
+    """
+    End-of-regular-season finish for every QB/RB/WR/TE/K in a season, in the team's scoring format.
+    Returns {player_id: {"pts", "pos_rank", "overall_rank", "position"}}.
+    pos_rank:     rank among players at the same position (WR3 = 3rd-best WR)
+    overall_rank: rank among all QB/RB/WR/TE (kickers excluded, as fantasy sites usually do)
+    nflverse doesn't score kicking, so kickers are ranked by 3 x FG made + 1 x PAT made.
+    """
+    rows = query("""
+        WITH totals AS (
+            SELECT s.player_id, p.position,
+                   SUM(CASE WHEN p.position = 'K' THEN 3 * COALESCE(s.fg_made, 0) + COALESCE(s.pat_made, 0)
+                            WHEN %s = 'ppr'      THEN s.fantasy_points_ppr
+                            WHEN %s = 'half_ppr' THEN (s.fantasy_points + s.fantasy_points_ppr) / 2
+                            ELSE s.fantasy_points END) AS pts
+            FROM player_week_stats s
+            JOIN nfl_players p ON p.player_id = s.player_id
+            WHERE s.season = %s AND s.season_type = 'REG' AND p.position IN ('QB','RB','WR','TE','K')
+            GROUP BY s.player_id, p.position
+        ),
+        pos_ranked AS (
+            SELECT player_id, position, pts,
+                   RANK() OVER (PARTITION BY position ORDER BY pts DESC) AS pos_rank
+            FROM totals
+        ),
+        skill_ranked AS (
+            SELECT player_id, RANK() OVER (ORDER BY pts DESC) AS overall_rank
+            FROM totals WHERE position <> 'K'
+        )
+        SELECT pr.player_id, pr.position, ROUND(pr.pts, 1) AS pts, pr.pos_rank, sr.overall_rank
+        FROM pos_ranked pr
+        LEFT JOIN skill_ranked sr ON sr.player_id = pr.player_id""",
+        (scoring_format, scoring_format, season))
+    return {r["player_id"]: r for r in rows}
+
+
 # ---------------------------------------------------------------- team page
 @app.route("/cse30246/nfl_fantasy_ledger/teams/<int:team_id>")
 def team_detail(team_id):
@@ -294,6 +334,7 @@ def team_detail(team_id):
 
     roster = query("""
         SELECT re.roster_entry_id, p.player_id, p.full_name, p.position,
+               re.draft_round, re.draft_pick,
                GROUP_CONCAT(DISTINCT s.team SEPARATOR '/') AS season_team,
                COUNT(s.week) AS games,
                ROUND(SUM(CASE ft.scoring_format
@@ -307,8 +348,23 @@ def team_detail(team_id):
                ON s.player_id = re.player_id AND s.season = ft.season
               AND s.season_type = 'REG'
         WHERE re.team_id = %s
-        GROUP BY re.roster_entry_id, p.player_id, p.full_name, p.position
+        GROUP BY re.roster_entry_id, p.player_id, p.full_name, p.position,
+                 re.draft_round, re.draft_pick
         ORDER BY pts DESC""", (team_id,))
+
+    # End-of-season finish (e.g. WR3, #12 overall) for rostered and drafted players
+    ranks = season_ranks(team["season"], team["scoring_format"])
+    for r in roster:
+        r["finish"] = ranks.get(r["player_id"])
+
+    draft = query("""SELECT overall_pick, draft_round, round_pick, bid_amount, keeper,
+                            player_id, player_name, position
+                     FROM draft_picks WHERE team_id = %s ORDER BY overall_pick""", (team_id,))
+    on_roster = {r["player_id"] for r in roster}
+    for d in draft:
+        d["finish"] = ranks.get(d["player_id"])
+        d["on_roster"] = d["player_id"] in on_roster
+    has_stats = bool(ranks)
 
     is_owner = team["user_id"] == current_user_id()
     q = request.args.get("q", "").strip()
@@ -324,7 +380,8 @@ def team_detail(team_id):
 
     total = sum(r["pts"] or 0 for r in roster)
     return render_template("team.html", team=team, roster=roster, matches=matches,
-                           q=q, total=total, formats=FORMATS, is_owner=is_owner)
+                           q=q, total=total, formats=FORMATS, is_owner=is_owner,
+                           draft=draft, has_stats=has_stats)
 
 
 # ---------------------------------------------------------------- INSERT (add player)
@@ -434,6 +491,22 @@ def match_espn_players(players):
     return found, missing
 
 
+def name_draft_picks(draft):
+    """Draft picks for players no longer on any roster come without a name; fill from player_id_map."""
+    unnamed = [d["espn_id"] for d in draft if not d["name"]]
+    if unnamed:
+        rows = query("SELECT espn_id, name, position FROM player_id_map WHERE espn_id IN ({})".format(
+            ", ".join(["%s"] * len(unnamed))), unnamed)
+        known = {r["espn_id"]: r for r in rows}
+        for d in draft:
+            if not d["name"]:
+                r = known.get(d["espn_id"])
+                d["name"] = (r["name"] if r else None) or "ESPN player #{}".format(d["espn_id"])
+                if r and not d["position"]:
+                    d["position"] = (r["position"] or "").replace("PK", "K")
+    return draft
+
+
 def espn_form_args(f):
     return (f.get("espn_s2", "").strip() or None, f.get("swid", "").strip() or None)
 
@@ -480,6 +553,8 @@ def import_espn_save():
         return redirect(url_for("import_espn"))
 
     found, missing = match_espn_players(team["players"])
+    draft = name_draft_picks(team["draft"])
+    draft_found, _ = match_espn_players(draft)
     uid = current_user_id()
 
     conn = get_conn()
@@ -524,6 +599,16 @@ def import_espn_save():
                     cur.execute("""INSERT INTO roster_entries (team_id, player_id, draft_round, draft_pick)
                                    VALUES (%s, %s, %s, %s)""",
                                 (team_id, gsis, p["draft_round"], p["draft_pick"]))
+
+            # Full draft, including players since traded or dropped
+            cur.execute("DELETE FROM draft_picks WHERE team_id = %s", (team_id,))
+            for d in draft:
+                cur.execute("""INSERT INTO draft_picks
+                                 (team_id, overall_pick, draft_round, round_pick, bid_amount, keeper,
+                                  player_id, player_name, position)
+                               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                            (team_id, d["overall"], d["round"], d["round_pick"], d["bid"], d["keeper"],
+                             draft_found.get(d["espn_id"]), d["name"][:100], (d["position"] or None)))
         conn.commit()
     except Exception:
         conn.rollback()
@@ -531,8 +616,9 @@ def import_espn_save():
     finally:
         conn.close()
 
-    msg = "{} '{}' from {}: {} players.".format(
-        "Updated" if existing else "Imported", name, league["league_name"], len(seen))
+    msg = "{} '{}' from {}: {} players{}.".format(
+        "Updated" if existing else "Imported", name, league["league_name"], len(seen),
+        " and {} draft picks".format(len(draft)) if draft else "")
     if missing:
         msg += " Not imported: {}.".format(", ".join(
             "{} ({})".format(p["name"], p["position"] or "?") for p in missing))

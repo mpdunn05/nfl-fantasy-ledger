@@ -340,13 +340,61 @@ def draft_grade(pos_draft_rank, finish, season_has_stats):
     if not pos_draft_rank or not season_has_stats:
         return None
     if not finish:                                   # drafted but never played that season
-        return {"cls": BUST[0], "label": "Bust (no stats)", "diff": None}
+        return {"cls": BUST[0], "label": "Bust (no stats)", "diff": None, "score": NO_STATS_SCORE}
     s = GRADE_SMOOTHING
     score = math.log((pos_draft_rank + s) / (finish["pos_rank"] + s))
+    diff = pos_draft_rank - finish["pos_rank"]
     for minimum, cls, label in GRADES:
         if score >= minimum:
-            return {"cls": cls, "label": label, "diff": pos_draft_rank - finish["pos_rank"]}
-    return {"cls": BUST[0], "label": BUST[1], "diff": pos_draft_rank - finish["pos_rank"]}
+            return {"cls": cls, "label": label, "diff": diff, "score": score}
+    return {"cls": BUST[0], "label": BUST[1], "diff": diff, "score": score}
+
+
+# Whole-draft letter grade = weighted average of the pick scores above. Early picks count more
+# (weight 1/sqrt(round): round 1 = 1.0, round 4 = 0.5, round 16 = 0.25).
+# Calibrated by simulating 12-team snake drafts for 2021-2024 (draft order from the previous
+# season, finishes from the actual season): a typical team averages about -0.45 with a spread
+# of 0.24, because players usually finish a bit worse than where they're drafted (injuries,
+# regression). So an average draft lands around B-/C+ and only the top ~10% get an A.
+NO_STATS_SCORE = -1.2
+MIN_GRADED_PICKS = 5
+DRAFT_SCORE_MEAN, DRAFT_SCORE_SD = -0.45, 0.24
+LETTERS = [  # (minimum weighted score, letter)
+    (0.00, "A+"), (-0.15, "A"), (-0.23, "A-"),
+    (-0.31, "B+"), (-0.38, "B"), (-0.45, "B-"),
+    (-0.53, "C+"), (-0.62, "C"), (-0.70, "C-"),
+    (-0.82, "D"),
+]
+LETTER_COLORS = {"A": "g2", "B": "g1", "C": "n", "D": "r1", "F": "r2"}
+
+
+def team_draft_grade(draft):
+    """Letter grade + summary for a team's whole draft, or None if too few picks can be graded."""
+    graded = [d for d in draft if d.get("grade")]
+    if len(graded) < MIN_GRADED_PICKS:
+        return None
+    num = den = 0.0
+    for d in graded:
+        w = 1 / math.sqrt(d["draft_round"] or 1)
+        num += w * d["grade"]["score"]
+        den += w
+    score = num / den
+    letter = next((l for minimum, l in LETTERS if score >= minimum), "F")
+    # share of typical drafts this one beats (normal approximation of the simulation above)
+    z = (score - DRAFT_SCORE_MEAN) / DRAFT_SCORE_SD
+    beats = int(round(50 * (1 + math.erf(z / math.sqrt(2)))))
+    by_score = sorted(graded, key=lambda d: d["grade"]["score"])
+    return {
+        "letter": letter,
+        "cls": LETTER_COLORS[letter[0]],
+        "score": score,
+        "beats": max(1, min(99, beats)),
+        "graded": len(graded),
+        "steals": sum(1 for d in graded if d["grade"]["cls"] == "g2"),
+        "busts": sum(1 for d in graded if d["grade"]["cls"] == "r2"),
+        "best": by_score[-1],
+        "worst": by_score[0],
+    }
 
 
 # ---------------------------------------------------------------- team page
@@ -391,21 +439,14 @@ def team_detail(team_id):
                      FROM draft_picks WHERE team_id = %s ORDER BY overall_pick""", (team_id,))
     has_stats = bool(ranks)
     on_roster = {r["player_id"] for r in roster}
-    grade_by_player = {}
     for d in draft:
         d["finish"] = ranks.get(d["player_id"])
         d["on_roster"] = d["player_id"] in on_roster
         # team defenses aren't in our stats, so they can't be graded
         d["grade"] = None if d["position"] == "D/ST" or not d["player_id"] else \
             draft_grade(d["pos_draft_rank"], d["finish"], has_stats)
-        if d["player_id"] and d["grade"]:
-            grade_by_player[d["player_id"]] = d
-    for r in roster:
-        pick = grade_by_player.get(r["player_id"])
-        r["grade"] = pick["grade"] if pick else None
-        r["pos_draft_rank"] = pick["pos_draft_rank"] if pick else None
-        r["draft_position"] = pick["position"] if pick else None
     needs_reimport = bool(draft) and all(d["pos_draft_rank"] is None for d in draft)
+    overall_grade = team_draft_grade(draft)
 
     is_owner = team["user_id"] == current_user_id()
     q = request.args.get("q", "").strip()
@@ -422,7 +463,8 @@ def team_detail(team_id):
     total = sum(r["pts"] or 0 for r in roster)
     return render_template("team.html", team=team, roster=roster, matches=matches,
                            q=q, total=total, formats=FORMATS, is_owner=is_owner,
-                           draft=draft, has_stats=has_stats, needs_reimport=needs_reimport)
+                           draft=draft, has_stats=has_stats, needs_reimport=needs_reimport,
+                           overall_grade=overall_grade)
 
 
 # ---------------------------------------------------------------- INSERT (add player)

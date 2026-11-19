@@ -23,6 +23,9 @@
   .fin.r2 { background:#b91c1c; color:#fff; }
   .legend { display:flex; flex-wrap:wrap; gap:8px; align-items:center; font-size:12px; margin-top:10px; color:var(--muted); }
   .legend .fin { font-size:11px; }
+  .gradebox { display:flex; gap:16px; align-items:center; padding:12px 14px; margin-bottom:14px;
+              background:#fafbfc; border:1px solid var(--line); border-radius:8px; }
+  .gradebox .letter { font-size:30px; min-width:64px; text-align:center; padding:8px 10px; border-radius:8px; }
 </style>
 <p><a class="link" href="{{ url_for('teams') }}">← All teams</a>
   {% if is_owner %} · <a class="link" href="{{ url_for('account') }}">My Account</a>{% endif %}</p>
@@ -34,15 +37,14 @@
   <h2>Roster</h2>
   {% if roster %}
   <table>
-    <tr><th>Player</th><th>Pos</th><th>{{ team.season }} NFL team</th><th>Drafted</th><th>Finish</th>
+    <tr><th>Player</th><th>Pos</th><th>{{ team.season }} NFL team</th><th>Finish</th>
         <th class="num">Games</th><th class="num">Points</th>{% if is_owner %}<th></th>{% endif %}</tr>
     {% for r in roster %}
     <tr>
       <td>{{ r.full_name }}</td>
       <td><span class="pos">{{ r.position or '–' }}</span></td>
       <td>{{ r.season_team or 'Did not play' }}</td>
-      <td>{% if r.draft_pick %}Rd {{ r.draft_round }} · #{{ r.draft_pick }}{% else %}<span class="muted">{{ 'Pickup' if draft else '–' }}</span>{% endif %}</td>
-      <td>{{ finish_cell(r.finish, r.grade, r.draft_position, r.pos_draft_rank) }}</td>
+      <td>{% if r.finish %}{{ r.finish.position }}{{ r.finish.pos_rank }}{% else %}<span class="muted">–</span>{% endif %}</td>
       <td class="num">{{ r.games }}</td>
       <td class="num"><strong>{{ r.pts if r.pts is not none else '0.0' }}</strong></td>
       {% if is_owner %}
@@ -60,9 +62,7 @@
   {% endif %}
   {% if roster and has_stats %}
   <p class="muted" style="font-size:12px;margin:10px 0 0">
-    Finish = end of {{ team.season }} regular season in {{ team.scoring_format }} scoring:
-    position rank (WR3 = 3rd-best WR) · overall rank among QB/RB/WR/TE.
-    Kickers are ranked by 3 pts per FG + 1 per extra point.</p>
+    Finish = rank at their position after the {{ team.season }} regular season (WR3 = 3rd-best WR).</p>
   {% elif roster %}
   <p class="muted" style="font-size:12px;margin:10px 0 0">
     End-of-season finishes will appear once {{ team.season }} stats are loaded.</p>
@@ -72,6 +72,29 @@
 {% if draft %}
 <div class="card">
   <h2>Draft recap</h2>
+  {% if overall_grade %}
+  {% set g = overall_grade %}
+  <div class="gradebox">
+    <div class="letter fin {{ g.cls }}">{{ g.letter }}</div>
+    <div>
+      <div style="font-size:16px"><strong>Draft grade: {{ g.letter }}</strong>
+        <span class="muted">· better than {{ g.beats }}% of typical drafts</span></div>
+      <div class="muted" style="font-size:13px;margin-top:4px">
+        {{ g.steals }} steal{{ '' if g.steals == 1 else 's' }} ·
+        {{ g.busts }} bust{{ '' if g.busts == 1 else 's' }} ·
+        {{ g.graded }} picks graded</div>
+      <div style="font-size:13px;margin-top:6px">
+        <span class="muted">Best pick:</span> <strong>{{ g.best.player_name }}</strong>
+          (drafted {{ g.best.position }}{{ g.best.pos_draft_rank }} →
+          {% if g.best.finish %}finished {{ g.best.finish.position }}{{ g.best.finish.pos_rank }}{% else %}no stats{% endif %})
+        &nbsp;·&nbsp;
+        <span class="muted">Worst pick:</span> <strong>{{ g.worst.player_name }}</strong>
+          (drafted {{ g.worst.position }}{{ g.worst.pos_draft_rank }} →
+          {% if g.worst.finish %}finished {{ g.worst.finish.position }}{{ g.worst.finish.pos_rank }}{% else %}no stats{% endif %})
+      </div>
+    </div>
+  </div>
+  {% endif %}
   <table>
     <tr><th>Pick</th><th class="num">Overall</th><th>Player</th><th>Pos</th>
         <th title="Where this player was taken among their position in the whole league draft">Drafted as</th>
@@ -101,7 +124,9 @@
   </div>
   <p class="muted" style="font-size:12px;margin:6px 0 0">
     Value compares each player to their own position: drafted as the 5th RB taken in your league (RB5) and finished RB2
-    is +3. Moving up or down counts more near the top of a position than deep in it.</p>
+    is +3. Moving up or down counts more near the top of a position than deep in it.
+    The draft grade averages every graded pick, with early rounds counting more.
+    Kickers are ranked by 3 pts per FG + 1 per extra point.</p>
   {% endif %}
 </div>
 {% elif team.platform == 'espn' and is_owner %}

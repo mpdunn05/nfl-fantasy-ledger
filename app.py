@@ -1,5 +1,6 @@
 #!/var/www/html/cse30246/nfl_fantasy_ledger/.venv/bin/python3
 
+import math
 import os
 from functools import wraps
 from flask import Flask, render_template, request, redirect, url_for, flash, session
@@ -320,6 +321,34 @@ def season_ranks(season, scoring_format):
     return {r["player_id"]: r for r in rows}
 
 
+# How a pick is graded: compare where the player was taken at their position (5th RB drafted)
+# with where they finished at that position (RB2). The score is a log ratio so moving up 5 spots
+# counts for more near the top (RB8 -> RB3) than deep in the draft (RB40 -> RB35).
+# SMOOTHING keeps tiny differences among the very top picks (QB1 -> QB2) from looking dramatic.
+GRADE_SMOOTHING = 3
+GRADES = [  # (minimum score, css class, label)
+    (0.8,  "g2", "Steal"),
+    (0.25, "g1", "Good value"),
+    (-0.25, "n", "Fair"),
+    (-0.8, "r1", "Bad value"),
+]
+BUST = ("r2", "Bust")
+
+
+def draft_grade(pos_draft_rank, finish, season_has_stats):
+    """Grade one pick. Returns {"cls", "label", "diff"} or None when it can't be graded."""
+    if not pos_draft_rank or not season_has_stats:
+        return None
+    if not finish:                                   # drafted but never played that season
+        return {"cls": BUST[0], "label": "Bust (no stats)", "diff": None}
+    s = GRADE_SMOOTHING
+    score = math.log((pos_draft_rank + s) / (finish["pos_rank"] + s))
+    for minimum, cls, label in GRADES:
+        if score >= minimum:
+            return {"cls": cls, "label": label, "diff": pos_draft_rank - finish["pos_rank"]}
+    return {"cls": BUST[0], "label": BUST[1], "diff": pos_draft_rank - finish["pos_rank"]}
+
+
 # ---------------------------------------------------------------- team page
 @app.route("/cse30246/nfl_fantasy_ledger/teams/<int:team_id>")
 def team_detail(team_id):
@@ -358,13 +387,25 @@ def team_detail(team_id):
         r["finish"] = ranks.get(r["player_id"])
 
     draft = query("""SELECT overall_pick, draft_round, round_pick, bid_amount, keeper,
-                            player_id, player_name, position
+                            player_id, player_name, position, pos_draft_rank
                      FROM draft_picks WHERE team_id = %s ORDER BY overall_pick""", (team_id,))
+    has_stats = bool(ranks)
     on_roster = {r["player_id"] for r in roster}
+    grade_by_player = {}
     for d in draft:
         d["finish"] = ranks.get(d["player_id"])
         d["on_roster"] = d["player_id"] in on_roster
-    has_stats = bool(ranks)
+        # team defenses aren't in our stats, so they can't be graded
+        d["grade"] = None if d["position"] == "D/ST" or not d["player_id"] else \
+            draft_grade(d["pos_draft_rank"], d["finish"], has_stats)
+        if d["player_id"] and d["grade"]:
+            grade_by_player[d["player_id"]] = d
+    for r in roster:
+        pick = grade_by_player.get(r["player_id"])
+        r["grade"] = pick["grade"] if pick else None
+        r["pos_draft_rank"] = pick["pos_draft_rank"] if pick else None
+        r["draft_position"] = pick["position"] if pick else None
+    needs_reimport = bool(draft) and all(d["pos_draft_rank"] is None for d in draft)
 
     is_owner = team["user_id"] == current_user_id()
     q = request.args.get("q", "").strip()
@@ -381,7 +422,7 @@ def team_detail(team_id):
     total = sum(r["pts"] or 0 for r in roster)
     return render_template("team.html", team=team, roster=roster, matches=matches,
                            q=q, total=total, formats=FORMATS, is_owner=is_owner,
-                           draft=draft, has_stats=has_stats)
+                           draft=draft, has_stats=has_stats, needs_reimport=needs_reimport)
 
 
 # ---------------------------------------------------------------- INSERT (add player)
@@ -492,18 +533,19 @@ def match_espn_players(players):
 
 
 def name_draft_picks(draft):
-    """Draft picks for players no longer on any roster come without a name; fill from player_id_map."""
-    unnamed = [d["espn_id"] for d in draft if not d["name"]]
-    if unnamed:
+    """Draft picks for players no longer on any roster come without a name/position; fill from player_id_map."""
+    unknown = list({d["espn_id"] for d in draft if not d["name"] or not d["position"]})
+    known = {}
+    if unknown:
         rows = query("SELECT espn_id, name, position FROM player_id_map WHERE espn_id IN ({})".format(
-            ", ".join(["%s"] * len(unnamed))), unnamed)
+            ", ".join(["%s"] * len(unknown))), unknown)
         known = {r["espn_id"]: r for r in rows}
-        for d in draft:
-            if not d["name"]:
-                r = known.get(d["espn_id"])
-                d["name"] = (r["name"] if r else None) or "ESPN player #{}".format(d["espn_id"])
-                if r and not d["position"]:
-                    d["position"] = (r["position"] or "").replace("PK", "K")
+    for d in draft:
+        r = known.get(d["espn_id"])
+        if not d["name"]:
+            d["name"] = (r["name"] if r else None) or "ESPN player #{}".format(d["espn_id"])
+        if not d["position"] and r and r["position"]:
+            d["position"] = "K" if r["position"] == "PK" else r["position"]
     return draft
 
 
@@ -553,7 +595,10 @@ def import_espn_save():
         return redirect(url_for("import_espn"))
 
     found, missing = match_espn_players(team["players"])
-    draft = name_draft_picks(team["draft"])
+    # Name every pick in the league, then number picks within each position league-wide
+    # (5th RB taken = 5) so each of this team's picks can be graded against its positional finish
+    espn.add_positional_draft_ranks(name_draft_picks(league["draft"]))
+    draft = team["draft"]
     draft_found, _ = match_espn_players(draft)
     uid = current_user_id()
 
@@ -605,10 +650,11 @@ def import_espn_save():
             for d in draft:
                 cur.execute("""INSERT INTO draft_picks
                                  (team_id, overall_pick, draft_round, round_pick, bid_amount, keeper,
-                                  player_id, player_name, position)
-                               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                                  player_id, player_name, position, pos_draft_rank)
+                               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                             (team_id, d["overall"], d["round"], d["round_pick"], d["bid"], d["keeper"],
-                             draft_found.get(d["espn_id"]), d["name"][:100], (d["position"] or None)))
+                             draft_found.get(d["espn_id"]), d["name"][:100], (d["position"] or None),
+                             d.get("pos_rank")))
         conn.commit()
     except Exception:
         conn.rollback()

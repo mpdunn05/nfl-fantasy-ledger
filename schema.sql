@@ -127,6 +127,7 @@ CREATE TABLE draft_picks (
   player_id     VARCHAR(12)  NULL,                 -- NULL when the player isn't in nfl_players (e.g. D/ST)
   player_name   VARCHAR(100) NOT NULL,
   position      VARCHAR(5)   NULL,
+  pos_draft_rank SMALLINT    NULL,                 -- order taken at this position league-wide (5 = 5th RB drafted)
   PRIMARY KEY (team_id, overall_pick),
   CONSTRAINT fk_draft_team   FOREIGN KEY (team_id)   REFERENCES fantasy_teams(team_id) ON DELETE CASCADE,
   CONSTRAINT fk_draft_player FOREIGN KEY (player_id) REFERENCES nfl_players(player_id)

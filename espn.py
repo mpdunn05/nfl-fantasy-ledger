@@ -145,8 +145,9 @@ def parse_league(data, league_id, season):
       {"league_id", "season", "league_name", "scoring_format",
        "teams": [{"team_id", "name", "abbrev", "owners",
                   "players": [{"espn_id", "name", "position", "draft_round", "draft_pick"}],
-                  "draft":   [{"espn_id", "name", "position", "overall", "round", "round_pick",
-                               "bid", "keeper"}]}]}
+                  "draft":   [{"team_id", "espn_id", "name", "position", "overall", "round",
+                               "round_pick", "bid", "keeper"}]}],
+       "draft": [every pick in the league, same dicts as above]}
     """
     settings = data.get("settings") or {}
     members = {m.get("id"): (m.get("displayName") or
@@ -176,6 +177,7 @@ def parse_league(data, league_id, season):
             abbr = PRO_TEAMS.get(-16000 - pid)
             name, pos = ("{} D/ST".format(abbr) if abbr else "D/ST"), "D/ST"
         team_drafts.setdefault(p.get("teamId"), []).append({
+            "team_id": str(p.get("teamId")),
             "espn_id": pid,
             "name": name,                   # None = look it up later (player not on any roster now)
             "position": pos,
@@ -221,7 +223,22 @@ def parse_league(data, league_id, season):
         "league_name": (settings.get("name") or "ESPN League {}".format(league_id))[:100],
         "scoring_format": scoring_format(settings),
         "teams": teams,
+        # every pick in the league (same dicts as each team's "draft"), in draft order
+        "draft": sorted((d for picks in team_drafts.values() for d in picks), key=lambda d: d["overall"]),
     }
+
+
+def add_positional_draft_ranks(draft):
+    """Number each pick within its position across the whole league draft: 5th RB taken -> pos_rank 5."""
+    seen = {}
+    for d in sorted(draft, key=lambda d: d["overall"]):
+        pos = d.get("position") or ""
+        if pos:
+            seen[pos] = seen.get(pos, 0) + 1
+            d["pos_rank"] = seen[pos]
+        else:
+            d["pos_rank"] = None
+    return draft
 
 
 _SUFFIX = re.compile(r"\b(jr|sr|ii|iii|iv|v)\b")
